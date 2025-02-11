@@ -7,7 +7,7 @@ import axios from "axios";
 import { toast } from "react-toastify";
 
 // Set the Axios base URL so that API calls target your backend.
-axios.defaults.baseURL = "http://localhost:5000";
+axios.defaults.baseURL = "https://kanban-board-sztz.onrender.com";
 
 // Set the Authorization header if a token exists in localStorage.
 const token = localStorage.getItem("token");
