@@ -1,88 +1,144 @@
-import React, { useState } from "react";
+// src/components/KanbanBoard.jsx
+import React, { useEffect, useState } from "react";
 import { DragDropContext } from "react-beautiful-dnd";
 import { useNavigate } from "react-router-dom";
 import List from "./List";
-import { v4 as uuidv4 } from "uuid";
+import axios from "axios";
 import { toast } from "react-toastify";
 
-const KanbanBoard = () => {
-  const [lists, setLists] = useState([
-    { id: "list-1", title: "To Do", tasks: [] },
-    { id: "list-2", title: "In Progress", tasks: [] },
-    { id: "list-3", title: "Done", tasks: [] },
-  ]);
+// Set the Axios base URL so that API calls target your backend.
+axios.defaults.baseURL = "http://localhost:5000";
 
+// Set the Authorization header if a token exists in localStorage.
+const token = localStorage.getItem("token");
+if (token) {
+  axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+  console.log("Axios authorization token set:", token);
+} else {
+  console.warn("No token found in localStorage. Please log in first.");
+}
+
+const KanbanBoard = () => {
+  const [lists, setLists] = useState([]);
+  const [boardId, setBoardId] = useState(null);
   const navigate = useNavigate();
 
-  // Function to add a new list
-  const addList = (title) => {
-    const newList = { id: uuidv4(), title, tasks: [] };
-    setLists((prevLists) => [...prevLists, newList]);
-    toast.success("List added successfully!");
+  // Helper to transform backend list and task IDs (_id -> id)
+  const transformLists = (lists) =>
+    lists.map((list) => ({
+      id: list._id,
+      title: list.title,
+      order: list.order,
+      tasks: (list.tasks || []).map((task) => ({
+        id: task._id,
+        title: task.title,
+        description: task.description,
+        dueDate: task.dueDate,
+        priority: task.priority,
+        order: task.order,
+      })),
+    }));
+
+  // Fetch board data from the backend on mount
+  const fetchBoard = async () => {
+    try {
+      const { data } = await axios.get("/api/boards");
+      setLists(transformLists(data.lists || []));
+      setBoardId(data._id);
+    } catch (error) {
+      console.error("Failed to fetch board", error);
+      toast.error("Failed to fetch board data.");
+    }
   };
 
-  // Function to update a list (for editing title and tasks)
+  useEffect(() => {
+    fetchBoard();
+  }, []);
+
+  // Update board on backend and update local state with returned data
+  const updateBoardBackend = async (updatedLists) => {
+    if (!boardId) return;
+    try {
+      const { data } = await axios.put(`/api/boards/${boardId}`, {
+        lists: updatedLists,
+      });
+      setLists(transformLists(data.lists || []));
+    } catch (error) {
+      console.error("Failed to update board", error);
+      toast.error("Failed to update board data.");
+    }
+  };
+
+  // Function to add a new list using the backend endpoint
+  const addList = async (title) => {
+    try {
+      const { data } = await axios.post("/api/boards/add-list", { title });
+      toast.success("List added successfully!");
+      setLists(transformLists(data.lists || []));
+      setBoardId(data._id);
+    } catch (error) {
+      console.error("Failed to add list", error);
+      toast.error("Failed to add list");
+    }
+  };
+
+  // Function to update a list
   const updateList = (listId, updatedList) => {
-    setLists((prevLists) =>
-      prevLists.map((list) => (list.id === listId ? updatedList : list))
+    const updatedLists = lists.map((list) =>
+      list.id === listId ? updatedList : list
     );
+    setLists(updatedLists);
+    updateBoardBackend(updatedLists);
   };
 
   // Function to delete a list
   const deleteList = (listId) => {
-    setLists((prevLists) => prevLists.filter((list) => list.id !== listId));
+    const updatedLists = lists.filter((list) => list.id !== listId);
+    setLists(updatedLists);
+    updateBoardBackend(updatedLists);
     toast.info("List deleted.");
   };
 
-  // Handle drag-and-drop of tasks using functional state updates
+  // Handle drag-and-drop using a simplified approach
   const handleDragEnd = (result) => {
     if (!result.destination) return;
     const { source, destination } = result;
-
-    setLists((prevLists) => {
-      // If dragging within the same list
-      if (source.droppableId === destination.droppableId) {
-        return prevLists.map((list) => {
-          if (list.id === source.droppableId) {
-            const newTasks = Array.from(list.tasks);
-            const [removed] = newTasks.splice(source.index, 1);
-            newTasks.splice(destination.index, 0, removed);
-            return { ...list, tasks: newTasks };
-          }
-          return list;
-        });
-      } else {
-        // Moving task between lists
-        const sourceIndex = prevLists.findIndex(
-          (list) => list.id === source.droppableId
-        );
-        const destIndex = prevLists.findIndex(
-          (list) => list.id === destination.droppableId
-        );
-
-        const sourceList = { ...prevLists[sourceIndex] };
-        const destList = { ...prevLists[destIndex] };
-
-        const sourceTasks = Array.from(sourceList.tasks);
-        const destTasks = Array.from(destList.tasks);
-
-        const [removed] = sourceTasks.splice(source.index, 1);
-        destTasks.splice(destination.index, 0, removed);
-
-        sourceList.tasks = sourceTasks;
-        destList.tasks = destTasks;
-
-        const newLists = [...prevLists];
-        newLists[sourceIndex] = sourceList;
-        newLists[destIndex] = destList;
-        return newLists;
-      }
-    });
+    const sourceListIndex = lists.findIndex(
+      (list) => list.id === source.droppableId
+    );
+    const destListIndex = lists.findIndex(
+      (list) => list.id === destination.droppableId
+    );
+    if (sourceListIndex === -1 || destListIndex === -1) return;
+    const newLists = [...lists];
+    if (source.droppableId === destination.droppableId) {
+      // Moving task within the same list.
+      const list = { ...newLists[sourceListIndex] };
+      const newTasks = Array.from(list.tasks);
+      const [movedTask] = newTasks.splice(source.index, 1);
+      newTasks.splice(destination.index, 0, movedTask);
+      list.tasks = newTasks;
+      newLists[sourceListIndex] = list;
+    } else {
+      // Moving task between lists.
+      const sourceList = { ...newLists[sourceListIndex] };
+      const destList = { ...newLists[destListIndex] };
+      const sourceTasks = Array.from(sourceList.tasks);
+      const destTasks = Array.from(destList.tasks);
+      const [movedTask] = sourceTasks.splice(source.index, 1);
+      destTasks.splice(destination.index, 0, movedTask);
+      sourceList.tasks = sourceTasks;
+      destList.tasks = destTasks;
+      newLists[sourceListIndex] = sourceList;
+      newLists[destListIndex] = destList;
+    }
+    setLists(newLists);
+    updateBoardBackend(newLists);
   };
 
   return (
     <div className="relative min-h-screen bg-gradient-to-r from-gray-800 via-gray-900 to-black p-4 text-gray-200">
-      {/* Inline style block to define a custom slide-in animation */}
+      {/* Inline style block for slide-in animation */}
       <style>{`
         @keyframes slideIn {
           0% { transform: translateX(-100%); opacity: 0; }
@@ -99,7 +155,7 @@ const KanbanBoard = () => {
           toast.info("Logged out successfully!");
           navigate("/");
         }}
-        className="absolute top-4 right-4 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded cursor-pointer"
+        className="absolute top-4 right-4 z-50 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded cursor-pointer"
       >
         Logout
       </button>

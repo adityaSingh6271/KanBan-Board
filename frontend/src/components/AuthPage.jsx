@@ -41,7 +41,10 @@ const AuthPage = () => {
 
     try {
       const response = await axios.post(url, dataToSend);
-      if (response.status === 200) {
+      // Check for success status (201 for register, 200 for login)
+      if (response.status === 200 || response.status === 201) {
+        // Save token to localStorage
+        localStorage.setItem("token", response.data.token);
         const successMsg = response.data.message || "Success!";
         setMessage(successMsg);
         toast.success(successMsg);
@@ -140,7 +143,7 @@ const AuthPage = () => {
             )}
             <button
               type="submit"
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg"
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg cursor-pointer"
             >
               {isRegister ? "Register" : "Login"}
             </button>
@@ -159,7 +162,7 @@ const AuthPage = () => {
                 });
                 setMessage("");
               }}
-              className="text-blue-500 underline ml-1"
+              className="text-blue-500 underline ml-1 cursor-pointer"
             >
               {isRegister ? "Login" : "Register"}
             </button>
